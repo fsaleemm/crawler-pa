@@ -1,0 +1,16 @@
+selenium
+azure-ai-formrecognizer
+azure-core
+azure-search-documents==11.4.0b6
+python-dotenv
+requests
+openai
+markdown
+requests
+openai
+tiktoken
+azure-identity
+azure-storage-blob
+beautifulsoup4
+tqdm
+langchain
