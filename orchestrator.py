@@ -153,7 +153,7 @@ def chunker_consumer(q, nextq):
             i=0
             for chunk in chunking_result.chunks:
                 # Process each chunk
-                id = base64.b64encode( (f"{item['url']}").encode("utf-8") ).decode("utf-8")
+                id = base64.urlsafe_b64encode((f"{item['url']}").encode("utf-8") ).decode("utf-8")
                 chunk.id = f"{id}-{i}"
                 chunk.sourcepage = str(i)
                 chunk.sourcefile = str(item["url"])
