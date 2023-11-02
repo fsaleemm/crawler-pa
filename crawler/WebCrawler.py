@@ -43,14 +43,14 @@ class WebCrawler:
                 cols = row.find_elements(By.TAG_NAME,"td")
 
                 if cols:
-                    key_links  = self.get_links(cols[0])
+                    key_links  = self.get_links(cols[0], exclude=True)
                     if key_links:
                        ref_links.extend(key_links)
                     else:
                         key_links = self.get_solicitation_links(cols[3])
 
-                    ref_links.extend(self.get_links(cols[2]))
-                    ref_links.extend(self.get_links(cols[3]))
+                    ref_links.extend(self.get_links(cols[2], exclude=True))
+                    ref_links.extend(self.get_links(cols[3], exclude=True))
                 
                 if not header:
                     header = [col.text.strip() for col in row.find_elements(By.TAG_NAME,"th")]
@@ -62,9 +62,9 @@ class WebCrawler:
                             row_dict["metadata"][header[i]] = row_data[i].strip()
                     
                     if ref_links:
-                        refined_links = [item for item in ref_links if not any(item.startswith(prefix) for prefix in self.exclude_urls)]
+                        #refined_links = [item for item in ref_links if not any(item.startswith(prefix) for prefix in self.exclude_urls)]
                         #print(refined_links)
-                        deduped_links = list(set(refined_links))
+                        deduped_links = list(set(ref_links))
                         row_dict["links"] = deduped_links
 
                     if row_dict:
@@ -77,7 +77,7 @@ class WebCrawler:
         return table_dict
 
 
-    def get_links(self, element):
+    """     def get_links(self, element, exclude=False):
         links = []
 
         ref_links = element.find_elements(By.TAG_NAME, "a")
@@ -85,6 +85,22 @@ class WebCrawler:
         if len(ref_links) > 0:
             for ref_link in ref_links:
                 links.append(ref_link.get_attribute("href").strip())
+
+        if exclude:
+            links = [link for link in links if not any(link.startswith(prefix) for prefix in self.exclude_urls)]
+        
+        return links """
+    
+    def get_links(self, element, exclude=False):
+        links = []
+
+        ref_links = element.find_elements(By.TAG_NAME, "a")
+
+        if len(ref_links) > 0:
+            for ref_link in ref_links:
+                link = ref_link.get_attribute("href").strip()
+                if not link.startswith('mailto:') and not (exclude and any(link.startswith(prefix) for prefix in self.exclude_urls)):
+                    links.append(link)
         
         return links
 

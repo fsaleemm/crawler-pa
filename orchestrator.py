@@ -61,7 +61,20 @@ def crawl_base_url(base_url, nextq):
 
     try:
         crawler.visit_url(base_url)
+        table_dict = {}
         table_dict = crawler.parse_tables()
+
+        # if the page is not Opportunities page, then extract links and crawl the links. Assuming static content URL
+        if not table_dict:
+            table_dict[base_url] = {}
+            body = crawler.get_elements(By.TAG_NAME, "body")
+            
+            if len(body) > 0:
+                links = crawler.get_links(body[0], exclude=True)
+
+                table_dict[base_url]["links"] = links
+                table_dict[base_url]["metadata"] = {}
+                
 
         # Add links to the next queue
         for key_link, table in table_dict.items():
@@ -169,7 +182,6 @@ def indexer_consumer(q, search_client, batch_size=100):
                 try:
                     # Upload the documents to the index
                     upload_documents_to_index(docs=batch, search_client=search_client)
-                    #pass
                 except Exception as e:
                     print(f"Error uploading document to index: {e}")
             break
@@ -181,7 +193,6 @@ def indexer_consumer(q, search_client, batch_size=100):
             try:
                 # Upload the documents to the index
                 upload_documents_to_index(docs=batch, search_client=search_client, upload_batch_size=batch_size)
-                #pass
             except Exception as e:
                 print(f"Error uploading document to index: {e}")
             finally:
