@@ -21,6 +21,9 @@ NUM_OF_THREADS = int(os.getenv("NUM_OF_THREADS"))
 EXCLUDE_LIST = os.getenv('EXCLUDE_LIST').split(',')
 BASE_URLS = os.getenv('BASE_URLS').split(',')
 
+enable_vectors_str = os.getenv("ENABLE_VECTORS")
+ENABLE_VECTORS = enable_vectors_str.lower() in ['true', '1', 'yes']
+
 
 # Azure Search
 INDEX_NAME = os.getenv("INDEX_NAME")
@@ -57,37 +60,38 @@ def base_crawler_consumer(q, nextq):
         
 def crawl_base_url(base_url, nextq):
     """Crawl a base URL and add its links to the next queue."""
-    crawler = WebCrawler(base_url=base_url, exclude_urls=EXCLUDE_LIST)
+    #crawler = WebCrawler(base_url=base_url, exclude_urls=EXCLUDE_LIST)
 
     try:
-        crawler.visit_url(base_url)
-        table_dict = {}
-        table_dict = crawler.parse_tables()
+        with WebCrawler(base_url, exclude_urls=EXCLUDE_LIST) as crawler:
+            crawler.visit_url(base_url)
+            table_dict = {}
+            table_dict = crawler.parse_tables()
 
-        # if the page is not Opportunities page, then extract links and crawl the links. Assuming static content URL
-        if not table_dict:
-            table_dict[base_url] = {}
-            body = crawler.get_elements(By.TAG_NAME, "body")
-            
-            if len(body) > 0:
-                links = crawler.get_links(body[0], exclude=True)
-
-                table_dict[base_url]["links"] = links
-                table_dict[base_url]["metadata"] = {}
+            # if the page is not Opportunities page, then extract links and crawl the links. Assuming static content URL
+            if not table_dict:
+                table_dict[base_url] = {}
+                body = crawler.get_elements(By.TAG_NAME, "body")
                 
+                if len(body) > 0:
+                    links = crawler.get_links(body[0], exclude=True)
 
-        # Add links to the next queue
-        for key_link, table in table_dict.items():
-            try:
-                for link in table["links"]:
-                    item = {"url": link, "metadata": table["metadata"]}
-                    nextq.put(item)
-            except Exception as e:
-                print(f"Error processing url: {key_link}, Error: {e}")
+                    table_dict[base_url]["links"] = links
+                    table_dict[base_url]["metadata"] = {}
+                    
+
+            # Add links to the next queue
+            for key_link, table in table_dict.items():
+                try:
+                    for link in table["links"]:
+                        item = {"url": link, "metadata": table["metadata"]}
+                        nextq.put(item)
+                except Exception as e:
+                    print(f"Error processing url: {key_link}, Error: {e}")
     except Exception as e:
         print(f"Error processing base url: {base_url}, Error: {e}")
-    finally:
-        crawler.close()
+    #finally:
+        #crawler.close()
 
 
 def url_crawler_consumer(q, nextq):
@@ -120,11 +124,12 @@ def crawl_url(url):
             response = requests.get(url)
             return response.content, "pdf"
         else:
-            crawler = WebCrawler(base_url=url, exclude_urls=EXCLUDE_LIST)
-            crawler.visit_url(url)
-            content = crawler.parse_page()
-            crawler.close()
-            return content, "text"
+            #crawler = WebCrawler(base_url=url, exclude_urls=EXCLUDE_LIST)
+            with WebCrawler(base_url=url, exclude_urls=EXCLUDE_LIST) as crawler:
+                crawler.visit_url(url)
+                content = crawler.parse_page()
+                #crawler.close()
+                return content, "text"
     except Exception as e:
         print(f"Error processing url: {url}, Error: {e}")
         
@@ -144,7 +149,7 @@ def chunker_consumer(q, nextq):
                 min_chunk_size=10,
                 token_overlap=128,
                 url=item["url"],
-                add_embeddings=True,
+                add_embeddings=ENABLE_VECTORS,
                 form_recognizer_client=form_recognizer_client if item["contenttype"] == "pdf" else None,
                 use_layout=True if item["contenttype"] == "pdf" else False,
                 metadata=item["metadata"]
@@ -181,7 +186,7 @@ def indexer_consumer(q, search_client, batch_size=100):
             if batch:
                 try:
                     # Upload the documents to the index
-                    upload_documents_to_index(docs=batch, search_client=search_client)
+                    upload_documents_to_index(docs=batch, search_client=search_client, upload_batch_size=len(batch))
                 except Exception as e:
                     print(f"Error uploading document to index: {e}")
             break
@@ -244,7 +249,7 @@ def main():
         for q in queues:
             q.put(None)
 
-     # Wait for all the threads to finish
+    # Wait for all the threads to finish
     for thread in all_threads:
         thread.join()
 

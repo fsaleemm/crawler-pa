@@ -3,13 +3,45 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import NoSuchElementException
-import requests
+import requests, os
 
 class WebCrawler:
     def __init__(self, base_url, exclude_urls, driver_path=None ):
         chrome_options = Options()
-        chrome_options.add_argument('--headless')
-        chrome_options.add_argument('--disable-gpu')
+        # Run Chrome in headless mode
+        chrome_options.add_argument("--headless")
+
+        # Disable GPU hardware acceleration
+        chrome_options.add_argument("--disable-gpu")
+
+        # Disable infobars on startup
+        chrome_options.add_argument("--disable-infobars")
+
+        # Disable notifications
+        chrome_options.add_argument("--disable-notifications")
+
+        # Disable pop-up blocking
+        chrome_options.add_argument("--disable-popup-blocking")
+
+        # Disable automatic software updates
+        chrome_options.add_argument("--disable-software-rasterizer")
+
+        # Disable prompt for user data sync
+        chrome_options.add_argument("--disable-sync")
+
+        # Disable translate UI
+        chrome_options.add_argument("--disable-translate")
+
+        # Disable save password bubbles
+        chrome_options.add_argument("--disable-save-password-bubble")
+
+        # Disable autoplay of embedded videos
+        chrome_options.add_argument("--autoplay-policy=user-gesture-required")
+
+        # Additional options to speed up Chrome
+        chrome_options.add_argument("--no-sandbox")
+        chrome_options.add_argument("--disable-dev-shm-usage")
+
         self.driver = webdriver.Chrome(options=chrome_options)
         self.base_url = base_url
         self.exclude_urls = exclude_urls
@@ -124,4 +156,10 @@ class WebCrawler:
         return main_content.text
 
     def close(self):
+        self.driver.quit()
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, exc_type, exc_val, exc_tb):
         self.driver.quit()

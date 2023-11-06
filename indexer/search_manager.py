@@ -83,9 +83,11 @@ def upload_documents_to_index(docs, search_client, upload_batch_size=50):
         id += 1
 
     # Upload the documents in batches of upload_batch_size
-    for i in tqdm(
-        range(0, len(to_upload_dicts), upload_batch_size), desc="Indexing Chunks..."
-    ):
+    #for i in tqdm(
+    #    range(0, len(to_upload_dicts), upload_batch_size), desc="Indexing Chunks..."
+    #):
+    for i in range(0, len(to_upload_dicts), upload_batch_size):
+        print(f"Indexing Chunks ... {upload_batch_size}")
         batch = to_upload_dicts[i : i + upload_batch_size]
         results = search_client.upload_documents(documents=batch)
         num_failures = 0
