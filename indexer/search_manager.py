@@ -16,9 +16,10 @@ from azure.search.documents.indexes.models import (
 
 import dataclasses
 from tqdm import tqdm
+import logging
 
 def create_search_index(index_name, index_client):
-    print(f"Ensuring search index {index_name} exists")
+    logging.info(f"Ensuring search index {index_name} exists")
     if index_name not in index_client.list_index_names():
         index = SearchIndex(
             name=index_name,
@@ -63,10 +64,10 @@ def create_search_index(index_name, index_client):
                 ]
             )
         )
-        print(f"Creating {index_name} search index")
+        logging.info(f"Creating {index_name} search index")
         index_client.create_index(index)
     else:
-        print(f"Search index {index_name} already exists")
+        logging.info(f"Search index {index_name} already exists")
 
 
 def upload_documents_to_index(docs, search_client, upload_batch_size=50):
@@ -87,14 +88,14 @@ def upload_documents_to_index(docs, search_client, upload_batch_size=50):
     #    range(0, len(to_upload_dicts), upload_batch_size), desc="Indexing Chunks..."
     #):
     for i in range(0, len(to_upload_dicts), upload_batch_size):
-        print(f"Indexing Chunks ... {upload_batch_size}")
+        logging.info(f"Indexing Chunks ... {upload_batch_size}")
         batch = to_upload_dicts[i : i + upload_batch_size]
         results = search_client.upload_documents(documents=batch)
         num_failures = 0
         errors = set()
         for result in results:
             if not result.succeeded:
-                print(
+                logging.warning(
                     f"Indexing Failed for {result.key} with ERROR: {result.error_message}"
                 )
                 num_failures += 1
@@ -118,7 +119,7 @@ def upload_document_to_index(doc, search_client):
     errors = set()
     for result in results:
         if not result.succeeded:
-            print(
+            logging.warning(
                 f"Indexing Failed for {result.key} with ERROR: {result.error_message}"
             )
             num_failures += 1

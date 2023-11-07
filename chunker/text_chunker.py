@@ -25,6 +25,8 @@ from bs4 import BeautifulSoup
 from langchain.text_splitter import TextSplitter, MarkdownTextSplitter, RecursiveCharacterTextSplitter, PythonCodeTextSplitter
 from tqdm import tqdm
 from typing import Any
+import logging
+import random
 
 
 FILE_FORMAT_DICT = {
@@ -37,7 +39,7 @@ FILE_FORMAT_DICT = {
         "pdf": "pdf"
     }
 
-RETRY_COUNT = 1
+RETRY_COUNT = 3
 
 SENTENCE_ENDINGS = [".", "!", "?"]
 WORDS_BREAKS = list(reversed([",", ";", ":", " ", "(", ")", "[", "]", "{", "}", "\t", "\n"]))
@@ -737,7 +739,9 @@ def chunk_content(
                             doc.embedding = get_embedding(chunk, azure_credential=azure_credential, embedding_model_endpoint=embedding_endpoint)
                             break
                         except:
-                            time.sleep(1)
+                            s = random.randint(1, 5)
+                            logging.info(f"Sleeping for {s} seconds before retrying. Retry : {_}")
+                            time.sleep(s)
                     if doc.embedding is None:
                         raise Exception(f"Error getting embedding for chunk={chunk}")
                     
@@ -940,10 +944,10 @@ def process_file(
             chunk_doc.filepath = rel_file_path
             chunk_doc.metadata = json.dumps({"chunk_id": str(chunk_idx)})
     except Exception as e:
-        print(e)
+        logging.error(e)
         if not ignore_errors:
             raise
-        print(f"File ({file_path}) failed with ", e)
+        logging.error(f"File ({file_path}) failed with ", e)
         is_error = True
         result =None
     return result, is_error
@@ -965,9 +969,9 @@ def chunk_blob_container(
         embedding_endpoint = None
 ):
     with tempfile.TemporaryDirectory() as local_data_folder:
-        print(f'Downloading {blob_url} to local folder')
+        logging.info(f'Downloading {blob_url} to local folder')
         downloadBlobUrlToLocalFolder(blob_url, local_data_folder, credential)
-        print(f'Downloaded.')
+        logging.info(f'Downloaded.')
 
         result = chunk_directory(
             local_data_folder,
@@ -1030,11 +1034,11 @@ def chunk_directory(
 
     all_files_directory = get_files_recursively(directory_path)
     files_to_process = [file_path for file_path in all_files_directory if os.path.isfile(file_path)]
-    print(f"Total files to process={len(files_to_process)} out of total directory size={len(all_files_directory)}")
+    logging.info(f"Total files to process={len(files_to_process)} out of total directory size={len(all_files_directory)}")
 
 
     if njobs==1:
-        print("Single process to chunk and parse the files. --njobs > 1 can help performance.")
+        logging.info("Single process to chunk and parse the files. --njobs > 1 can help performance.")
         for file_path in tqdm(files_to_process):
             total_files += 1
             result, is_error = process_file(file_path=file_path,directory_path=directory_path, ignore_errors=ignore_errors,
@@ -1052,7 +1056,7 @@ def chunk_directory(
             num_files_with_errors += result.num_files_with_errors
             skipped_chunks += result.skipped_chunks
     elif njobs > 1:
-        print(f"Multiprocessing with njobs={njobs}")
+        logging.info(f"Multiprocessing with njobs={njobs}")
         process_file_partial = partial(process_file, directory_path=directory_path, ignore_errors=ignore_errors,
                                        num_tokens=num_tokens,
                                        min_chunk_size=min_chunk_size, url_prefix=url_prefix,
@@ -1085,13 +1089,13 @@ class SingletonFormRecognizerClient:
     instance = None
     def __new__(cls, *args, **kwargs):
         if not cls.instance:
-            print("SingletonFormRecognizerClient: Creating instance of Form recognizer per process")
+            logging.info("SingletonFormRecognizerClient: Creating instance of Form recognizer per process")
             url = os.getenv("FORM_RECOGNIZER_ENDPOINT")
             key = os.getenv("FORM_RECOGNIZER_KEY")
             if url and key:
                 cls.instance = DocumentAnalysisClient(endpoint=url, credential=AzureKeyCredential(key))
             else:
-                print("SingletonFormRecognizerClient: Skipping since credentials not provided. Assuming NO form recognizer extensions(like .pdf) in directory")
+                logging.info("SingletonFormRecognizerClient: Skipping since credentials not provided. Assuming NO form recognizer extensions(like .pdf) in directory")
                 cls.instance = object() # dummy object
         return cls.instance
 

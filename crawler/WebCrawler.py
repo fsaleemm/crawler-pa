@@ -3,7 +3,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import NoSuchElementException
-import requests, os
+import requests, os, logging
 
 class WebCrawler:
     def __init__(self, base_url, exclude_urls, driver_path=None ):
@@ -47,15 +47,19 @@ class WebCrawler:
         self.exclude_urls = exclude_urls
 
     def visit_url(self, url):
-        self.driver.get(url)
-        wait = WebDriverWait(self.driver, 10)
+        try:
+            self.driver.set_page_load_timeout(20)  # Set timeout to 10 seconds
+            self.driver.get(url)
+        except Exception as e:
+            logging.error(f"Error occured for page to load {url}")
+
 
     def get_elements(self, strategy, element_selector):
         try:
             elements = self.driver.find_elements(strategy, element_selector)
             return elements
         except Exception as e:
-            print(f"Error: {e}")
+            logging.error(f"Error: {e}")
             return None
         
     def parse_tables(self):

@@ -14,19 +14,21 @@ from datetime import datetime
 
 from dotenv import load_dotenv
 
+logging.basicConfig(filename=f'crawler-{time.time()}.log', filemode='a', format='%(asctime)s - %(name)s - %(levelname)s - %(message)s', level=logging.INFO, datefmt='%Y-%m-%d %H:%M:%S')
+
 load_dotenv()
 
 # Constants
-NUM_OF_THREADS = int(os.getenv("NUM_OF_THREADS"))
+NUM_OF_THREADS = int(os.getenv("NUM_OF_THREADS", 1))
 EXCLUDE_LIST = os.getenv('EXCLUDE_LIST').split(',')
 BASE_URLS = os.getenv('BASE_URLS').split(',')
 
-enable_vectors_str = os.getenv("ENABLE_VECTORS")
+enable_vectors_str = os.getenv("ENABLE_VECTORS", "false")
 ENABLE_VECTORS = enable_vectors_str.lower() in ['true', '1', 'yes']
 
 
 # Azure Search
-INDEX_NAME = os.getenv("INDEX_NAME")
+INDEX_NAME = os.getenv("INDEX_NAME", "crawler-index")
 SEARCH_ENDPOINT = os.getenv("SEARCH_ENDPOINT")
 SEARCH_CREDS = AzureKeyCredential(os.getenv("SEARCH_KEY"))
 
@@ -35,7 +37,6 @@ search_client = SearchClient(
     endpoint=SEARCH_ENDPOINT, credential=SEARCH_CREDS, index_name=INDEX_NAME
 )
 
-create_search_index(index_name=INDEX_NAME, index_client=index_client)
 
 # Azure Form Recognizer
 FORM_RECOGNIZER_ENDPOINT = os.getenv("FORM_RECOGNIZER_ENDPOINT") 
@@ -46,6 +47,8 @@ form_recognizer_client = DocumentAnalysisClient(
     credential=FORM_RECOGNIZER_CREDS,
 )
 
+
+
 def base_crawler_consumer(q, nextq):
     """Consumer function to process base URLs from the queue and add their links to the next queue."""
     while True:
@@ -53,10 +56,10 @@ def base_crawler_consumer(q, nextq):
         if base_url is None:
             break
 
-        print(f"Crawling: {base_url}")
+        logging.info(f"Crawling: {base_url}")
         crawl_base_url(base_url, nextq)
         q.task_done()
-    print(f"Base Crawler Consumer is done")
+    logging.info(f"Base Crawler Consumer is done")
         
 def crawl_base_url(base_url, nextq):
     """Crawl a base URL and add its links to the next queue."""
@@ -87,9 +90,9 @@ def crawl_base_url(base_url, nextq):
                         item = {"url": link, "metadata": table["metadata"]}
                         nextq.put(item)
                 except Exception as e:
-                    print(f"Error processing url: {key_link}, Error: {e}")
+                    logging.error(f"Error processing url: {key_link}, Error: {e}")
     except Exception as e:
-        print(f"Error processing base url: {base_url}, Error: {e}")
+        logging.error(f"Error processing base url: {base_url}, Error: {e}")
     #finally:
         #crawler.close()
 
@@ -101,7 +104,7 @@ def url_crawler_consumer(q, nextq):
         if item is None:
             break
 
-        print(f"Crawling: {item['url']}")
+        logging.info(f"Crawling: {item['url']}")
         result = crawl_url(item["url"])
         if result is not None:
             content, contenttype = result
@@ -109,11 +112,11 @@ def url_crawler_consumer(q, nextq):
             item["contenttype"] = contenttype
             nextq.put(item)
         else:
-            print(f"No data for url: {item['url']}")
+            logging.warning(f"No data for url: {item['url']}")
             continue
 
         q.task_done()
-    print(f"Url Crawler Consumer is done")
+    logging.info(f"Url Crawler Consumer is done")
 
 
 def crawl_url(url):
@@ -124,14 +127,12 @@ def crawl_url(url):
             response = requests.get(url)
             return response.content, "pdf"
         else:
-            #crawler = WebCrawler(base_url=url, exclude_urls=EXCLUDE_LIST)
             with WebCrawler(base_url=url, exclude_urls=EXCLUDE_LIST) as crawler:
                 crawler.visit_url(url)
                 content = crawler.parse_page()
-                #crawler.close()
                 return content, "text"
     except Exception as e:
-        print(f"Error processing url: {url}, Error: {e}")
+        logging.error(f"Error processing url: {url}, Error: {e}")
         
 
 
@@ -168,12 +169,12 @@ def chunker_consumer(q, nextq):
                 i += 1
 
         except Exception as e:
-            print(f"Error processing item from queue: {e}")
+            logging.error(f"Error processing item from chuncker queue: {e}")
 
         finally:
             q.task_done()
         
-    print(f"Chunker Consumer is done")
+    logging.info(f"Chunker Consumer is done")
 
 
 def indexer_consumer(q, search_client, batch_size=100):
@@ -188,7 +189,7 @@ def indexer_consumer(q, search_client, batch_size=100):
                     # Upload the documents to the index
                     upload_documents_to_index(docs=batch, search_client=search_client, upload_batch_size=len(batch))
                 except Exception as e:
-                    print(f"Error uploading document to index: {e}")
+                    logging.error(f"Error uploading document to index: {e}")
             break
 
         batch.append(item)
@@ -199,23 +200,27 @@ def indexer_consumer(q, search_client, batch_size=100):
                 # Upload the documents to the index
                 upload_documents_to_index(docs=batch, search_client=search_client, upload_batch_size=batch_size)
             except Exception as e:
-                print(f"Error uploading document to index: {e}")
+                logging.error(f"Error uploading document to index: {e}")
             finally:
                 # Clear the batch
                 batch = []
 
         q.task_done()
 
-    print(f"Indexer Consumer is done")
+    logging.info(f"Indexer Consumer is done")
 
 def start_threads(consumer, source_queue, target_queue, num_of_threads):
     return [threading.Thread(target=consumer, args=(source_queue, target_queue)) for _ in range(num_of_threads)]
 
 
 def main():
+  
     start_time = time.time()
     formatted_start_time = datetime.fromtimestamp(start_time).strftime("%Y-%m-%d %H:%M:%S")
-    print(f"Starting crawler: {formatted_start_time}")
+
+    logging.info(f"Starting crawler: {formatted_start_time}")
+
+    create_search_index(index_name=INDEX_NAME, index_client=index_client)
 
     base_crawler_queue = queue.Queue()
     url_crawler_queue = queue.Queue()
@@ -256,10 +261,10 @@ def main():
 
     end_time = time.time()
     formatted_end_time = datetime.fromtimestamp(end_time).strftime("%Y-%m-%d %H:%M:%S")
-    print(f"Ending crawler: {formatted_end_time}")
+    logging.info(f"Ending crawler: {formatted_end_time}")
 
     elapsed_time = end_time - start_time
-    print("Elapsed time: {:.2f} seconds".format(elapsed_time))
+    logging.info("Elapsed time: {:.2f} seconds".format(elapsed_time))
 
 if __name__ == "__main__":
     main()
