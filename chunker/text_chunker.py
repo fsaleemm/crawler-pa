@@ -27,6 +27,7 @@ from tqdm import tqdm
 from typing import Any
 import logging
 import random
+from openai.error import RateLimitError
 
 
 FILE_FORMAT_DICT = {
@@ -40,6 +41,7 @@ FILE_FORMAT_DICT = {
     }
 
 RETRY_COUNT = 3
+SLEEP_TIME_RANGE = (15, 30)
 
 SENTENCE_ENDINGS = [".", "!", "?"]
 WORDS_BREAKS = list(reversed([",", ";", ":", " ", "(", ")", "[", "]", "{", "}", "\t", "\n"]))
@@ -618,6 +620,7 @@ def get_embedding(text, embedding_model_endpoint=None, embedding_model_key=None,
     key = embedding_model_key if embedding_model_key else os.environ.get("EMBEDDING_MODEL_KEY")
     
     if azure_credential is None and (endpoint is None or key is None):
+        logging.error("EMBEDDING_MODEL_ENDPOINT and EMBEDDING_MODEL_KEY are required for embedding")
         raise Exception("EMBEDDING_MODEL_ENDPOINT and EMBEDDING_MODEL_KEY are required for embedding")
 
     try:
@@ -635,11 +638,21 @@ def get_embedding(text, embedding_model_endpoint=None, embedding_model_key=None,
             openai.api_type = 'azure'
             openai.api_key = key
 
-        embeddings = openai.Embedding.create(deployment_id=deployment_id, input=text)
-        return embeddings['data'][0]["embedding"]
+        for _ in range(RETRY_COUNT):
+            try:
+                embeddings = openai.Embedding.create(deployment_id=deployment_id, input=text)
+                return embeddings['data'][0]["embedding"]
+            except RateLimitError:
+                s = random.randint(*SLEEP_TIME_RANGE)
+                logging.info(f"Sleeping for {s} seconds before retrying. Retry : {_}")
+                time.sleep(s)
+            except Exception as e:
+                raise e
+            
 
     except Exception as e:
-        raise Exception(f"Error getting embeddings with endpoint={endpoint} with error={e}")
+        logging.error(f"Error getting embeddings with endpoint={endpoint} with error={e}")
+        #raise Exception(f"Error getting embeddings with endpoint={endpoint} with error={e}")
 
 
 def chunk_content_helper(
@@ -734,18 +747,12 @@ def chunk_content(
         for chunk, chunk_size, doc in chunked_context:
             if chunk_size >= min_chunk_size:
                 if add_embeddings:
-                    for _ in range(RETRY_COUNT):
-                        try:
-                            doc.embedding = get_embedding(chunk, azure_credential=azure_credential, embedding_model_endpoint=embedding_endpoint)
-                            break
-                        except:
-                            s = random.randint(1, 5)
-                            logging.info(f"Sleeping for {s} seconds before retrying. Retry : {_}")
-                            time.sleep(s)
-                    if doc.embedding is None:
-                        raise Exception(f"Error getting embedding for chunk={chunk}")
-                    
+                    doc.embedding = get_embedding(chunk, azure_credential=azure_credential, embedding_model_endpoint=embedding_endpoint)
 
+                    if doc.embedding is None:
+                        logging.error(f"Error getting embedding for chunk={chunk}")
+                        #raise Exception(f"Error getting embedding for chunk={chunk}")
+                    
                 chunks.append(
                     Document(
                         content=chunk,
