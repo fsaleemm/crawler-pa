@@ -56,7 +56,6 @@ def base_crawler_consumer(q, nextq):
         if base_url is None:
             break
 
-        logging.info(f"Crawling: {base_url}")
         crawl_base_url(base_url, nextq)
         q.task_done()
     logging.info(f"Base Crawler Consumer is done")
@@ -67,12 +66,14 @@ def crawl_base_url(base_url, nextq):
 
     try:
         with WebCrawler(base_url, exclude_urls=EXCLUDE_LIST) as crawler:
+            logging.info(f"Crawling: {base_url}")
             crawler.visit_url(base_url)
             table_dict = {}
             table_dict = crawler.parse_tables()
 
             # if the page is not Opportunities page, then extract links and crawl the links. Assuming static content URL
             if not table_dict:
+                logging.info(f"No links found on: {base_url}, assuming static content url.")
                 table_dict[base_url] = {}
                 body = crawler.get_elements(By.TAG_NAME, "body")
                 
@@ -81,7 +82,8 @@ def crawl_base_url(base_url, nextq):
 
                     table_dict[base_url]["links"] = links
                     table_dict[base_url]["metadata"] = {}
-                    
+                else:
+                    logging.info(f"No body found on: {base_url}.")
 
             # Add links to the next queue
             for key_link, table in table_dict.items():
@@ -90,11 +92,9 @@ def crawl_base_url(base_url, nextq):
                         item = {"url": link, "metadata": table["metadata"]}
                         nextq.put(item)
                 except Exception as e:
-                    logging.error(f"Error processing url: {key_link}, Error: {e}")
+                    logging.error(f"Error procesing base url links for : {key_link}, Error: {e}")
     except Exception as e:
         logging.error(f"Error processing base url: {base_url}, Error: {e}")
-    #finally:
-        #crawler.close()
 
 
 def url_crawler_consumer(q, nextq):
@@ -104,7 +104,6 @@ def url_crawler_consumer(q, nextq):
         if item is None:
             break
 
-        logging.info(f"Crawling: {item['url']}")
         result = crawl_url(item["url"])
         if result is not None:
             content, contenttype = result
@@ -121,7 +120,7 @@ def url_crawler_consumer(q, nextq):
 
 def crawl_url(url):
     """Crawl a URL and return its content and type."""
-
+    logging.info(f"Crawling: {url}")
     try:
         if url.lower().endswith(".pdf"):
             response = requests.get(url)
@@ -132,7 +131,7 @@ def crawl_url(url):
                 content = crawler.parse_page()
                 return content, "text"
     except Exception as e:
-        logging.error(f"Error processing url: {url}, Error: {e}")
+        logging.error(f"Error retrieving url : {url}, Error: {e}")
         
 
 

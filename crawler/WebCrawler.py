@@ -3,6 +3,7 @@ from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
 from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import NoSuchElementException
+from selenium.common.exceptions import TimeoutException
 import requests, os, logging
 
 class WebCrawler:
@@ -48,10 +49,13 @@ class WebCrawler:
 
     def visit_url(self, url):
         try:
-            self.driver.set_page_load_timeout(20)  # Set timeout to 10 seconds
+            self.driver.set_page_load_timeout(20)  # Set timeout to 20 seconds
             self.driver.get(url)
+        except TimeoutException as e:
+            logging.error(f"Page load timed out for {url}, Exception: {e}")
         except Exception as e:
-            logging.error(f"Error occured for page to load {url}")
+            logging.error(f"Error occurred while loading {url}, Exception: {e}")
+            
 
 
     def get_elements(self, strategy, element_selector):
@@ -69,7 +73,6 @@ class WebCrawler:
         for table in tables:
             rows = table.find_elements(By.TAG_NAME, "tr")
             header = []
-            #links = []
 
             for row in rows:
                 row_dict = {}
@@ -78,15 +81,18 @@ class WebCrawler:
 
                 cols = row.find_elements(By.TAG_NAME,"td")
 
+                key_links = []
                 if cols:
                     key_links  = self.get_links(cols[0], exclude=True)
                     if key_links:
-                       ref_links.extend(key_links)
-                    else:
+                        ref_links.extend(key_links)
+                    elif len(cols) > 3:
                         key_links = self.get_solicitation_links(cols[3])
 
-                    ref_links.extend(self.get_links(cols[2], exclude=True))
-                    ref_links.extend(self.get_links(cols[3], exclude=True))
+                    if len(cols) > 2:
+                        ref_links.extend(self.get_links(cols[2], exclude=True))
+                    if len(cols) > 3:
+                        ref_links.extend(self.get_links(cols[3], exclude=True))
                 
                 if not header:
                     header = [col.text.strip() for col in row.find_elements(By.TAG_NAME,"th")]
@@ -98,34 +104,14 @@ class WebCrawler:
                             row_dict["metadata"][header[i]] = row_data[i].strip()
                     
                     if ref_links:
-                        #refined_links = [item for item in ref_links if not any(item.startswith(prefix) for prefix in self.exclude_urls)]
-                        #print(refined_links)
                         deduped_links = list(set(ref_links))
                         row_dict["links"] = deduped_links
 
-                    if row_dict:
-                        if key_links:
-                            table_dict[key_links[0].strip()] = row_dict
-            
-            #refined_links = [item for item in links if not any(item.startswith(prefix) for prefix in self.exclude_urls)]
-            #deduped_links = list(set(refined_links))
+                    if row_dict and key_links:
+                        table_dict[key_links[0].strip()] = row_dict
 
         return table_dict
 
-
-    """     def get_links(self, element, exclude=False):
-        links = []
-
-        ref_links = element.find_elements(By.TAG_NAME, "a")
-
-        if len(ref_links) > 0:
-            for ref_link in ref_links:
-                links.append(ref_link.get_attribute("href").strip())
-
-        if exclude:
-            links = [link for link in links if not any(link.startswith(prefix) for prefix in self.exclude_urls)]
-        
-        return links """
     
     def get_links(self, element, exclude=False):
         links = []
