@@ -55,7 +55,9 @@ class WebCrawler:
             logging.error(f"Page load timed out for {url}, Exception: {e}")
         except Exception as e:
             logging.error(f"Error occurred while loading {url}, Exception: {e}")
-            
+
+    def get_page_source(self):
+        return self.driver.page_source   
 
 
     def get_elements(self, strategy, element_selector):
@@ -66,6 +68,7 @@ class WebCrawler:
             logging.error(f"Error: {e}")
             return None
         
+
     def parse_tables(self):
         tables = self.get_elements(By.TAG_NAME, "table")
         table_dict = {}
@@ -112,8 +115,8 @@ class WebCrawler:
 
         return table_dict
 
-    
-    def get_links(self, element, exclude=False):
+
+    def get_links(self, element, exclude=False, file_types=None):
         links = []
 
         ref_links = element.find_elements(By.TAG_NAME, "a")
@@ -122,7 +125,11 @@ class WebCrawler:
             for ref_link in ref_links:
                 link = ref_link.get_attribute("href").strip()
                 if not link.startswith('mailto:') and not (exclude and any(link.startswith(prefix) for prefix in self.exclude_urls)):
-                    links.append(link)
+                    if file_types:
+                        if any(link.endswith(file_type) for file_type in file_types):
+                            links.append(link)
+                    else:
+                        links.append(link)
         
         return links
 
