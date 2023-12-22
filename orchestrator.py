@@ -128,7 +128,7 @@ def crawl_base_url(base_url, nextq):
             
             if len(body) > 0:
                 links = crawler.get_links(body[0], exclude=True, file_types=EXTRACT_LINK_TYPE)
-
+                
                 table_dict[base_url]["links"] = links
                 table_dict[base_url]["metadata"] = {}
             else:
@@ -137,6 +137,9 @@ def crawl_base_url(base_url, nextq):
             # Add links to the next queue
             for key_link, table in table_dict.items():
                 try:
+                    base_item = {"url": key_link, "metadata": {}}
+                    nextq.put(base_item)
+
                     for link in table["links"]:
                         item = {"url": link, "metadata": table["metadata"]}
                         nextq.put(item)
@@ -345,7 +348,7 @@ def start_threads(consumer, source_queue, target_queue, num_of_threads):
     return [threading.Thread(target=consumer, args=(source_queue, target_queue)) for _ in range(num_of_threads)]
 
 
-def main():
+def orchestrate():
   
     create_search_index(index_name=INDEX_NAME, index_client=index_client)
 
@@ -409,7 +412,7 @@ if __name__ == "__main__":
 
     crawler_store_items = setup_crawler_data()
 
-    main()
+    orchestrate()
 
     end_time = time.time()
     formatted_end_time = datetime.fromtimestamp(end_time).strftime("%Y-%m-%d %H:%M:%S")
