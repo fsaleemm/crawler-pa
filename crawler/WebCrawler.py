@@ -5,9 +5,10 @@ from selenium.webdriver.chrome.options import Options
 from selenium.common.exceptions import NoSuchElementException
 from selenium.common.exceptions import TimeoutException
 import requests, os, logging
+from urllib.parse import urlparse
 
 class WebCrawler:
-    def __init__(self, base_url, exclude_urls, driver_path=None ):
+    def __init__(self, base_url, exclude_urls, driver_path=None, agent=None, include_domains=None):
         chrome_options = Options()
         # Run Chrome in headless mode
         chrome_options.add_argument("--headless")
@@ -43,9 +44,19 @@ class WebCrawler:
         chrome_options.add_argument("--no-sandbox")
         chrome_options.add_argument("--disable-dev-shm-usage")
 
+        # Disable logging
+        chrome_options.add_argument("--log-level=3")
+
+        # Silent logging
+        chrome_options.add_argument("--silent")
+
+        # Set user agent
+        chrome_options.add_argument(f'user-agent={agent}')
+
         self.driver = webdriver.Chrome(options=chrome_options)
         self.base_url = base_url
         self.exclude_urls = exclude_urls
+        self.include_domains = include_domains
 
     def visit_url(self, url):
         try:
@@ -123,10 +134,22 @@ class WebCrawler:
 
         if len(ref_links) > 0:
             for ref_link in ref_links:
-                link = ref_link.get_attribute("href").strip()
+                link = ref_link.get_attribute("href")
+
+                if link is not None:
+                    link = link.strip()
+                    logging.debug(f"Link: {link}")
+                else:
+                    continue
+
+                parsed_link = urlparse(link)
+
                 if not link.startswith('mailto:') and not (exclude and any(link.startswith(prefix) for prefix in self.exclude_urls)):
+                    if self.include_domains and parsed_link.netloc.lower() not in self.include_domains:
+                        continue
+
                     if file_types:
-                        if any(link.endswith(file_type) for file_type in file_types):
+                        if any(parsed_link.path.lower().endswith(file_type) for file_type in file_types):
                             links.append(link)
                     else:
                         links.append(link)
