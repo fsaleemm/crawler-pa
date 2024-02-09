@@ -1,17 +1,34 @@
-# Instructions
+# Web Crawler Function
 
-Run the following to create a python environment and install the packages to it.
+## Prerequisites
 
-```bash
-python -m venv env
+1. Azure Container Registry
+1. Azure Function App
+1. Docker Desktop Installed
 
-# Windows PS
-.\env\Scripts\activate
+## Docker Image Deployment
 
-# bash
-source env/bin/activate
+Login to Azure Container Registry
 
-pip install -r requirements.txt
-
-python .\orchestrator.py
+```ps
+az acr login --name <azure-container-registry-name>
 ```
+
+Build the container image
+
+```ps
+docker build --tag f4t-crawler:v1.0.0 .
+```
+
+Prepare to push to Azure Container Registry
+
+```ps
+docker tag f4t-crawler:v1.0.0 <azure-container-registry-name>.azurecr.io/f4t-crawler:v1.0.0
+```
+
+Push to Azure Container Registry
+
+```ps
+docker push <azure-container-registry-name>.azurecr.io/f4t-crawler:v1.0.0
+```
+
