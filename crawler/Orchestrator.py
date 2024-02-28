@@ -22,6 +22,7 @@ class Orchestrator:
 
         if not self._shared_state:
             self.logging = logger
+            self.DELAY = int(os.getenv("DELAY", 0))
             self.NUM_OF_THREADS = int(os.getenv("NUM_OF_THREADS", 1))
             self.EXCLUDE_LIST = os.getenv('EXCLUDE_LIST', "").split(',')
             self.EXCLUDE = False if self.EXCLUDE_LIST == [''] else True
@@ -149,6 +150,11 @@ class Orchestrator:
                 nextq.put(item)
 
             q.task_done()
+
+            if self.DELAY:
+                self.logging.info(f"Pausing crawl for {self.DELAY} seconds.")
+                time.sleep(self.DELAY)
+
         self.logging.info(f"Url Crawler Consumer is done")
 
 

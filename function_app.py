@@ -15,8 +15,10 @@ from azure.cosmos import CosmosClient, PartitionKey
 
 app = func.FunctionApp()
 
-@app.schedule(schedule="0 0 * * *", arg_name="myTimer", run_on_startup=False, use_monitor=True) 
-def timercrawler(myTimer: func.TimerRequest) -> None:
+schedule = os.getenv('SCHEDULE', '0 0 * * *')
+
+@app.schedule(schedule=schedule, arg_name="myTimer", run_on_startup=False, use_monitor=True) 
+def webcrawler(myTimer: func.TimerRequest) -> None:
     
     cosmos_logger = os.environ.get("Use_COSMOS_Logger", "true")
     cosmos_logger_bool = cosmos_logger.lower() in ['true', '1']
