@@ -13,6 +13,7 @@ import uuid, base64, os, time, requests, json
 import queue, threading
 import hashlib
 from urllib.parse import urlparse
+from azure.identity import DefaultAzureCredential
 
 class Orchestrator:
     _shared_state = {}
@@ -42,7 +43,7 @@ class Orchestrator:
             self.FORM_RECOGNIZER_ENDPOINT = os.getenv("FORM_RECOGNIZER_ENDPOINT") 
             self.FORM_RECOGNIZER_CREDS = AzureKeyCredential(os.getenv("FORM_RECOGNIZER_KEY"))
             self.COSMOS_URL = os.environ.get("COSMOS_URL")
-            self.COSMOS_KEY = os.environ.get("COSMOS_DB_KEY")
+            self.COSMOS_KEY = os.environ.get("COSMOS_DB_KEY", None)
             self.DATABASE_NAME = os.environ.get("COSMOS_DATABASE_NAME", "CrawlStore")
             self.CONTAINER_NAME = os.environ.get("COSMOS_CONTAINER_NAME", "URLChangeLog")
             self.AGENT_NAME = os.environ.get("AGENT_NAME", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 Edg/121.0.0.0")
@@ -83,7 +84,12 @@ class Orchestrator:
 
         # Azure CosmosDB Client
         
-        cosmosdb_client = CosmosClient(self.COSMOS_URL, credential=self.COSMOS_KEY)
+        cosmos_cred = self.COSMOS_KEY
+
+        if not self.COSMOS_KEY:
+            cosmos_cred = DefaultAzureCredential()
+        
+        cosmosdb_client = CosmosClient(self.COSMOS_URL, credential=cosmos_cred)
         # Create the database if it does not exist
         self.logging.info(f"Creating Cosmos DB if it does not exist: {self.DATABASE_NAME}")
         database = cosmosdb_client.create_database_if_not_exists(id=self.DATABASE_NAME)

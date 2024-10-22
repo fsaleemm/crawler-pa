@@ -11,6 +11,7 @@ import uuid, base64, os, time, requests, json
 from datetime import datetime
 
 from azure.cosmos import CosmosClient, PartitionKey
+from azure.identity import DefaultAzureCredential
 
 
 app = func.FunctionApp()
@@ -51,7 +52,11 @@ def webcrawler(myTimer: func.TimerRequest) -> None:
 class CosmosDBHandler(logging.Handler):
     def __init__(self, cosmos_url, cosmos_key, database_name, container_name, run_id):
         super().__init__()
-        self.client = CosmosClient(cosmos_url, credential=cosmos_key)
+
+        cosmos_cred = cosmos_key
+        if not cosmos_key:
+            cosmos_cred = DefaultAzureCredential()
+        self.client = CosmosClient(cosmos_url, credential=cosmos_cred)
         self.database = self.client.create_database_if_not_exists(database_name)
         self.container = self.database.create_container_if_not_exists(
             id=container_name,
@@ -80,7 +85,7 @@ def get_cosmosdb_logger(run_id):
     # Create a CosmosDB handler
     cosmos_handler = CosmosDBHandler(
         cosmos_url = os.environ.get("COSMOS_URL"),
-        cosmos_key = os.environ.get("COSMOS_DB_KEY"),
+        cosmos_key = os.environ.get("COSMOS_DB_KEY", None),
         database_name = os.environ.get("COSMOS_DATABASE_NAME", "CrawlStore"),
         container_name = "CrawlerLog",
         run_id = run_id
