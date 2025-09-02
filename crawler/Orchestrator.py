@@ -206,40 +206,81 @@ class Orchestrator:
 
     def crawl_url(self, url, q, url_type, depth):
         """Crawl a URL and return its content and type."""
-        self.logging.info(f"Crawling: {url} of type: {url_type} and depth: {depth}")
+        max_retries = 3
+        retry_count = 0
+        
+        while retry_count < max_retries:
+            try:
+                self.logging.info(f"Crawling: {url} of type: {url_type} and depth: {depth} (attempt {retry_count + 1}/{max_retries})")
 
-        try:
-            parsed_url = urlparse(url)
-            
-            if parsed_url.path.lower().endswith(".pdf"):
-                response = requests.get(url)
-                md5_hash = hashlib.md5(response.content).hexdigest()
-
-                if not self.page_has_changed(url=url, md5_hash=md5_hash):
-                    return None
+                parsed_url = urlparse(url)
                 
-                return response.content, "pdf"
-            else:
-                with WebCrawler(base_url=url, exclude_urls=self.EXCLUDE_LIST, agent=self.AGENT_NAME, include_domains=self.INCLUDE_DOMAINS, include_urls=self.INCLUDE_URLS, include_urls_regex=self.INCLUDE_URLS_REGEX, ignore_anchor_link=self.IGNORE_ANCHOR_LINK, include_domains_regex=self.INCLUDE_DOMAINS_REGEX) as crawler:
-                    crawler.visit_url(url)
+                if parsed_url.path.lower().endswith(".pdf"):
+                    headers = {
+                            "User-Agent": self.AGENT_NAME
+                        }
+                    response = requests.get(url=url, headers=headers, timeout=30)
                     
-                    #self.logging.info(f"URL : {url}, HTML: {crawler.get_page_source()}")
-
-                    md5_hash = hashlib.md5(crawler.get_page_source().encode()).hexdigest()
+                    # Check if the request was successful
+                    if response.status_code == 403:
+                        self.logging.warning(f"Access forbidden (403) for PDF: {url}")
+                        return None
+                    elif response.status_code != 200:
+                        self.logging.warning(f"HTTP {response.status_code} for PDF: {url}")
+                        return None
+                    
+                    # Validate PDF content
+                    if len(response.content) < 100:  # Minimum PDF size check
+                        self.logging.warning(f"PDF content too small or empty: {url}")
+                        return None
+                    
+                    # Check if content starts with PDF signature
+                    if not response.content.startswith(b'%PDF'):
+                        self.logging.warning(f"Invalid PDF format detected: {url}")
+                        return None
+                    
+                    md5_hash = hashlib.md5(response.content).hexdigest()
 
                     if not self.page_has_changed(url=url, md5_hash=md5_hash):
                         return None
+                    
+                    return response.content, "pdf"
+                else:
+                    with WebCrawler(base_url=url, exclude_urls=self.EXCLUDE_LIST, agent=self.AGENT_NAME, include_domains=self.INCLUDE_DOMAINS, include_urls=self.INCLUDE_URLS, include_urls_regex=self.INCLUDE_URLS_REGEX, ignore_anchor_link=self.IGNORE_ANCHOR_LINK, include_domains_regex=self.INCLUDE_DOMAINS_REGEX) as crawler:
+                        crawler.visit_url(url)
+                        
+                        #self.logging.info(f"URL : {url}, HTML: {crawler.get_page_source()}")
 
-                    """ if url_type == "base":
-                        depth = 0 """
+                        md5_hash = hashlib.md5(crawler.get_page_source().encode()).hexdigest()
 
-                    if depth < self.CRAWL_DEPTH and url_type == "base":
-                        self.extract_links_to_queue(crawler=crawler, nextq=q, depth=depth)
+                        if not self.page_has_changed(url=url, md5_hash=md5_hash):
+                            return None
 
-                    content = crawler.parse_page()
-                    return content, "text"
-        except Exception as e:
-            self.logging.error(f"Error retrieving url : {url}, Error: {e}")
+                        """ if url_type == "base":
+                            depth = 0 """
+
+                        if depth < self.CRAWL_DEPTH and url_type == "base":
+                            self.extract_links_to_queue(crawler=crawler, nextq=q, depth=depth)
+
+                        content = crawler.parse_page()
+                        return content, "text"
+                        
+            except Exception as e:
+                retry_count += 1
+                error_msg = str(e).lower()
+                
+                # Check for specific error types that warrant retries
+                if any(keyword in error_msg for keyword in ["invalid session id", "session", "timeout", "connection", "network"]):
+                    self.logging.warning(f"Recoverable error for {url}, retry {retry_count}/{max_retries}: {e}")
+                    if retry_count < max_retries:
+                        time.sleep(2 * retry_count)  # Exponential backoff
+                        continue
+                else:
+                    self.logging.error(f"Non-recoverable error retrieving url: {url}, Error: {e}")
+                    break
+        
+        self.logging.error(f"Failed to crawl {url} after {max_retries} attempts")
+        return None
             
 
 
@@ -249,45 +290,112 @@ class Orchestrator:
             if item is None:
                 break
 
-            try:
-                self.logging.info(f"Chunking consumer working on : {item['url']}")
+            max_retries = 2
+            retry_count = 0
+            
+            while retry_count < max_retries:
+                try:
+                    self.logging.info(f"Chunking consumer working on: {item['url']} (attempt {retry_count + 1}/{max_retries})")
 
-                chunking_result = chunk_file_content(
-                    item["content"],
-                    file_format=item["contenttype"] if item["contenttype"] in ["pdf", "text"] else "text",
-                    num_tokens=512,
-                    min_chunk_size=10,
-                    token_overlap=128,
-                    url=item["url"],
-                    add_embeddings=self.ENABLE_VECTORS,
-                    form_recognizer_client=self.form_recognizer_client if item["contenttype"] == "pdf" else None,
-                    use_layout=True if item["contenttype"] == "pdf" else False,
-                    metadata = item.get("metadata", None),
-                    logger=self.logging
-                )
+                    # Validate content before processing
+                    if item["contenttype"] == "pdf":
+                        if not item["content"] or len(item["content"]) < 100:
+                            self.logging.warning(f"Skipping PDF with insufficient content: {item['url']}")
+                            break
+                        
+                        # Additional PDF validation
+                        if not item["content"].startswith(b'%PDF'):
+                            self.logging.warning(f"Skipping invalid PDF format: {item['url']}")
+                            break
 
-                i=0
-                for chunk in chunking_result.chunks:
-                    # Process each chunk
-                    id = base64.urlsafe_b64encode((f"{item['url']}").encode("utf-8") ).decode("utf-8")
-                    chunk.id = f"{id}-{i}"
-                    chunk.sourcepage = str(i)
-                    chunk.sourcefile = str(item["url"])
+                    chunking_result = chunk_file_content(
+                        item["content"],
+                        file_format=item["contenttype"] if item["contenttype"] in ["pdf", "text"] else "text",
+                        num_tokens=512,
+                        min_chunk_size=10,
+                        token_overlap=128,
+                        url=item["url"],
+                        add_embeddings=self.ENABLE_VECTORS,
+                        form_recognizer_client=self.form_recognizer_client if item["contenttype"] == "pdf" else None,
+                        use_layout=True if item["contenttype"] == "pdf" else False,
+                        metadata = item.get("metadata", None),
+                        logger=self.logging
+                    )
 
-                    if chunk.embedding is not None:
-                        self.logging.info(f"Processed Chunk for url: {chunk.url} - Chunk id: {chunk.id} - Chunk embedding: {chunk.embedding[:5]}")
+                    i=0
+                    for chunk in chunking_result.chunks:
+                        # Process each chunk
+                        id = base64.urlsafe_b64encode((f"{item['url']}").encode("utf-8") ).decode("utf-8")
+                        chunk.id = f"{id}-{i}"
+                        chunk.sourcepage = str(i)
+                        chunk.sourcefile = str(item["url"])
+
+                        if chunk.embedding is not None:
+                            self.logging.info(f"Processed Chunk for url: {chunk.url} - Chunk id: {chunk.id} - Chunk embedding: {chunk.embedding[:5]}")
+                        else:
+                            self.logging.info(f"Processed Chunk for url: {chunk.url} - Chunk id: {chunk.id} - No embedding available")
+
+                        nextq.put(chunk)
+
+                        i += 1
+                    
+                    # If we get here, processing was successful
+                    break
+                    
+                except Exception as e:
+                    retry_count += 1
+                    error_msg = str(e)
+                    
+                    # Check for specific Form Recognizer errors
+                    if "InvalidContent" in error_msg or "corrupted" in error_msg.lower() or "unsupported" in error_msg.lower():
+                        self.logging.warning(f"Form Recognizer content validation failed for {item['url']}: {e}")
+                        if item["contenttype"] == "pdf":
+                            # Try processing as text instead
+                            self.logging.info(f"Attempting to process PDF as text for {item['url']}")
+                            try:
+                                text_content = f"Content from PDF: {item['url']}\n[PDF content could not be processed by Form Recognizer]"
+                                
+                                chunking_result = chunk_file_content(
+                                    text_content,
+                                    file_format="text",
+                                    num_tokens=512,
+                                    min_chunk_size=10,
+                                    token_overlap=128,
+                                    url=item["url"],
+                                    add_embeddings=self.ENABLE_VECTORS,
+                                    form_recognizer_client=None,
+                                    use_layout=False,
+                                    metadata = item.get("metadata", None),
+                                    logger=self.logging
+                                )
+                                
+                                # Process the fallback chunks
+                                i=0
+                                for chunk in chunking_result.chunks:
+                                    id = base64.urlsafe_b64encode((f"{item['url']}").encode("utf-8") ).decode("utf-8")
+                                    chunk.id = f"{id}-{i}"
+                                    chunk.sourcepage = str(i)
+                                    chunk.sourcefile = str(item["url"])
+                                    nextq.put(chunk)
+                                    i += 1
+                                
+                                self.logging.info(f"Successfully processed {item['url']} as fallback text")
+                                break
+                                
+                            except Exception as fallback_error:
+                                self.logging.error(f"Fallback processing also failed for {item['url']}: {fallback_error}")
+                        break  # Don't retry for content validation errors
                     else:
-                        self.logging.info(f"Processed Chunk for url: {chunk.url} - Chunk id: {chunk.id} - No embedding available")
+                        self.logging.warning(f"Retryable error processing {item['url']}, retry {retry_count}/{max_retries}: {e}")
+                        if retry_count < max_retries:
+                            time.sleep(1 * retry_count)  # Brief delay before retry
+                            continue
+                        else:
+                            self.logging.error(f"Failed to process {item['url']} after {max_retries} attempts: {e}")
 
-                    nextq.put(chunk)
-
-                    i += 1
-
-            except Exception as e:
-                self.logging.error(f"Error processing item from chuncker queue: {e}")
-
-            finally:
-                q.task_done()
+            q.task_done()
+            
+        self.logging.info(f"Chunker Consumer is done")
             
         self.logging.info(f"Chunker Consumer is done")
 

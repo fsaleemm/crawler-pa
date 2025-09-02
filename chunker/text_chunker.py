@@ -27,7 +27,7 @@ from tqdm import tqdm
 from typing import Any
 import logging
 import random
-from openai.error import RateLimitError
+from openai.error import RateLimitError, APIError, Timeout, APIConnectionError, ServiceUnavailableError
 
 
 FILE_FORMAT_DICT = {
@@ -42,6 +42,10 @@ FILE_FORMAT_DICT = {
 
 RETRY_COUNT = 3
 SLEEP_TIME_RANGE = (15, 30)
+# Exponential backoff configuration
+BASE_RETRY_DELAY = 2  # Base delay in seconds
+MAX_RETRY_DELAY = 60  # Maximum delay in seconds
+BACKOFF_MULTIPLIER = 2  # Multiplier for exponential backoff
 
 SENTENCE_ENDINGS = [".", "!", "?"]
 WORDS_BREAKS = list(reversed([",", ";", ":", " ", "(", ")", "[", "]", "{", "}", "\t", "\n"]))
@@ -643,24 +647,52 @@ def get_embedding(text, embedding_model_endpoint=None, embedding_model_key=None,
             openai.api_type = 'azure'
             openai.api_key = key
 
-        for _ in range(RETRY_COUNT):
+        for retry_attempt in range(RETRY_COUNT):
             try:
                 embeddings = openai.Embedding.create(deployment_id=deployment_id, input=text)
                 
-                logger.info(f"Embedding response: {embeddings['data'][0]['embedding'][:5]}")
+                if logger:
+                    logger.info(f"Embedding response: {embeddings['data'][0]['embedding'][:5]}")
 
                 return embeddings['data'][0]["embedding"]
-            except RateLimitError:
-                s = random.randint(*SLEEP_TIME_RANGE)
-                logger.info(f"Sleeping for {s} seconds before retrying. Retry : {_}")
-                time.sleep(s)
+            except (RateLimitError, APIError, Timeout, APIConnectionError, ServiceUnavailableError) as e:
+                # Retryable errors - rate limits, timeouts, temporary service issues
+                if retry_attempt < RETRY_COUNT - 1:  # Don't sleep on the last attempt
+                    # Use exponential backoff for retryable errors
+                    base_delay = BASE_RETRY_DELAY * (BACKOFF_MULTIPLIER ** retry_attempt)
+                    # Add some randomization to avoid thundering herd
+                    jitter = random.uniform(0, base_delay * 0.1)
+                    sleep_time = min(base_delay + jitter, MAX_RETRY_DELAY)
+                    
+                    if logger:
+                        logger.warning(f"Retryable error ({type(e).__name__}): {e}. Using exponential backoff, sleeping for {sleep_time:.1f} seconds before retry {retry_attempt + 1}/{RETRY_COUNT}")
+                    time.sleep(sleep_time)
+                else:
+                    if logger:
+                        logger.error(f"Failed after {RETRY_COUNT} attempts with retryable error: {e}")
+                    raise e
+            except requests.exceptions.RequestException as e:
+                # Network-related errors that might be transient
+                if retry_attempt < RETRY_COUNT - 1:
+                    # Use the original random sleep range for network errors
+                    sleep_time = random.randint(*SLEEP_TIME_RANGE)
+                    if logger:
+                        logger.warning(f"Network error: {e}. Sleeping for {sleep_time} seconds before retry {retry_attempt + 1}/{RETRY_COUNT}")
+                    time.sleep(sleep_time)
+                else:
+                    if logger:
+                        logger.error(f"Failed after {RETRY_COUNT} attempts with network error: {e}")
+                    raise e
             except Exception as e:
-                logger.error(f"Error getting embeddings with endpoint={endpoint} with error={e}")
+                # Non-retryable errors - fail immediately
+                if logger:
+                    logger.error(f"Non-retryable error getting embeddings with endpoint={endpoint}: {e}")
                 raise e
             
 
     except Exception as e:
-        logger.error(f"Error getting embeddings with endpoint={endpoint} with error={e}")
+        if logger:
+            logger.error(f"Error getting embeddings with endpoint={endpoint} with error={e}")
         #raise Exception(f"Error getting embeddings with endpoint={endpoint} with error={e}")
 
 

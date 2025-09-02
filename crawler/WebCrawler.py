@@ -9,51 +9,70 @@ from urllib.parse import urlparse, urlunparse
 
 class WebCrawler:
     def __init__(self, base_url, exclude_urls, driver_path=None, agent=None, include_domains=None, include_urls=None, include_urls_regex=None, include_domains_regex=None, ignore_anchor_link=False):
-        chrome_options = Options()
+        self.chrome_options = Options()
         # Run Chrome in headless mode
-        chrome_options.add_argument("--headless")
+        self.chrome_options.add_argument("--headless")
 
         # Disable GPU hardware acceleration
-        chrome_options.add_argument("--disable-gpu")
+        self.chrome_options.add_argument("--disable-gpu")
 
         # Disable infobars on startup
-        chrome_options.add_argument("--disable-infobars")
+        self.chrome_options.add_argument("--disable-infobars")
 
         # Disable notifications
-        chrome_options.add_argument("--disable-notifications")
+        self.chrome_options.add_argument("--disable-notifications")
 
         # Disable pop-up blocking
-        chrome_options.add_argument("--disable-popup-blocking")
+        self.chrome_options.add_argument("--disable-popup-blocking")
 
         # Disable automatic software updates
-        chrome_options.add_argument("--disable-software-rasterizer")
+        self.chrome_options.add_argument("--disable-software-rasterizer")
 
         # Disable prompt for user data sync
-        chrome_options.add_argument("--disable-sync")
+        self.chrome_options.add_argument("--disable-sync")
 
         # Disable translate UI
-        chrome_options.add_argument("--disable-translate")
+        self.chrome_options.add_argument("--disable-translate")
 
         # Disable save password bubbles
-        chrome_options.add_argument("--disable-save-password-bubble")
+        self.chrome_options.add_argument("--disable-save-password-bubble")
 
         # Disable autoplay of embedded videos
-        chrome_options.add_argument("--autoplay-policy=user-gesture-required")
+        self.chrome_options.add_argument("--autoplay-policy=user-gesture-required")
 
         # Additional options to speed up Chrome
-        chrome_options.add_argument("--no-sandbox")
-        chrome_options.add_argument("--disable-dev-shm-usage")
+        self.chrome_options.add_argument("--no-sandbox")
+        self.chrome_options.add_argument("--disable-dev-shm-usage")
+
+        # Enhanced container-specific options
+        self.chrome_options.add_argument("--disable-extensions")
+        self.chrome_options.add_argument("--disable-background-timer-throttling")
+        self.chrome_options.add_argument("--disable-backgrounding-occluded-windows")
+        self.chrome_options.add_argument("--disable-renderer-backgrounding")
+        self.chrome_options.add_argument("--disable-features=TranslateUI")
+        self.chrome_options.add_argument("--disable-web-security")
+        self.chrome_options.add_argument("--ignore-certificate-errors")
+        self.chrome_options.add_argument("--allow-running-insecure-content")
+        self.chrome_options.add_argument("--disable-blink-features=AutomationControlled")
+        
+        # Memory optimization
+        self.chrome_options.add_argument("--memory-pressure-off")
+        self.chrome_options.add_argument("--max_old_space_size=4096")
 
         # Disable logging
-        chrome_options.add_argument("--log-level=3")
+        self.chrome_options.add_argument("--log-level=3")
 
         # Silent logging
-        chrome_options.add_argument("--silent")
+        self.chrome_options.add_argument("--silent")
 
         # Set user agent
-        chrome_options.add_argument(f'user-agent={agent}')
+        self.chrome_options.add_argument(f'user-agent={agent}')
+        
+        # Exclude automation switches
+        self.chrome_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+        self.chrome_options.add_experimental_option('useAutomationExtension', False)
 
-        self.driver = webdriver.Chrome(options=chrome_options)
+        self.driver = webdriver.Chrome(options=self.chrome_options)
         self.base_url = base_url
         self.exclude_urls = exclude_urls
         self.include_domains = include_domains
@@ -61,15 +80,56 @@ class WebCrawler:
         self.ignore_anchor_link = ignore_anchor_link
         self.include_urls_regex = include_urls_regex
         self.include_domains_regex = include_domains_regex
+        self.agent = agent
+
+    def is_session_active(self):
+        """Check if the WebDriver session is still active."""
+        try:
+            self.driver.current_url
+            return True
+        except Exception:
+            return False
+
+    def recover_session(self):
+        """Recover from a failed WebDriver session."""
+        try:
+            if hasattr(self, 'driver'):
+                self.driver.quit()
+        except:
+            pass
+        
+        # Reinitialize the driver
+        self.driver = webdriver.Chrome(options=self.chrome_options)
 
     def visit_url(self, url):
         try:
+            if not self.is_session_active():
+                logging.warning(f"WebDriver session inactive, recovering session for {url}")
+                self.recover_session()
+                
             self.driver.set_page_load_timeout(20)  # Set timeout to 20 seconds
             self.driver.get(url)
         except TimeoutException as e:
-            logging.error(f"Page load timed out for {url}, Exception: {e}")
+            logging.error(f"Page load timed out for {url}, attempting recovery: {e}")
+            self.recover_session()
+            try:
+                self.driver.get(url)
+            except Exception as recovery_error:
+                logging.error(f"Recovery failed for {url}: {recovery_error}")
+                raise
         except Exception as e:
-            logging.error(f"Error occurred while loading {url}, Exception: {e}")
+            error_msg = str(e).lower()
+            if "invalid session id" in error_msg or "session" in error_msg:
+                logging.warning(f"Session error for {url}, attempting recovery: {e}")
+                self.recover_session()
+                try:
+                    self.driver.get(url)
+                except Exception as recovery_error:
+                    logging.error(f"Recovery failed for {url}: {recovery_error}")
+                    raise
+            else:
+                logging.error(f"Error occurred while loading {url}, Exception: {e}")
+                raise
 
     def get_page_source(self):
         return self.driver.page_source   
@@ -229,7 +289,12 @@ class WebCrawler:
         return links
     
     def get_pdf(self, url):
-        response = requests.get(url)
+        
+        headers = {
+                "User-Agent": self.agent
+            }
+        
+        response = requests.get(url=url, headers=headers)
         return response
 
     def parse_page(self):

@@ -1,1 +1,5 @@
 local.settings.json
+.env*
+media/
+tester.py
+*.log
