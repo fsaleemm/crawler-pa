@@ -16,6 +16,14 @@ from urllib.parse import urlparse
 from azure.identity import DefaultAzureCredential
 import re
 
+# Optional curl_cffi import for bypassing TLS fingerprinting
+try:
+    from curl_cffi import requests as curl_requests
+    CURL_CFFI_AVAILABLE = True
+except ImportError:
+    CURL_CFFI_AVAILABLE = False
+    curl_requests = None
+
 class Orchestrator:
     _shared_state = {}
 
@@ -60,12 +68,19 @@ class Orchestrator:
             self.SEARCH_ENDPOINT = os.getenv("SEARCH_ENDPOINT")
             self.SEARCH_CREDS = AzureKeyCredential(os.getenv("SEARCH_KEY"))
             self.FORM_RECOGNIZER_ENDPOINT = os.getenv("FORM_RECOGNIZER_ENDPOINT") 
-            self.FORM_RECOGNIZER_CREDS = AzureKeyCredential(os.getenv("FORM_RECOGNIZER_KEY"))
+            form_recognizer_key = os.getenv("FORM_RECOGNIZER_KEY")
+            self.FORM_RECOGNIZER_CREDS = AzureKeyCredential(form_recognizer_key) if form_recognizer_key else DefaultAzureCredential()
             self.COSMOS_URL = os.environ.get("COSMOS_URL")
             self.COSMOS_KEY = os.environ.get("COSMOS_DB_KEY", None)
             self.DATABASE_NAME = os.environ.get("COSMOS_DATABASE_NAME", "CrawlStore")
             self.CONTAINER_NAME = os.environ.get("COSMOS_CONTAINER_NAME", "URLChangeLog")
             self.AGENT_NAME = os.environ.get("AGENT_NAME", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 Edg/121.0.0.0")
+
+            # curl_cffi option for bypassing TLS fingerprinting (e.g., Akamai CDN)
+            use_curl_cffi_str = os.getenv("USE_CURL_CFFI", "false")
+            self.USE_CURL_CFFI = use_curl_cffi_str.lower() in ['true', '1', 'yes'] and CURL_CFFI_AVAILABLE
+            if use_curl_cffi_str.lower() in ['true', '1', 'yes'] and not CURL_CFFI_AVAILABLE:
+                self.logging.warning("USE_CURL_CFFI is enabled but curl_cffi is not installed. Falling back to requests.")
 
             self.index_client, self.search_client, self.form_recognizer_client, self.cosmosdb_client, self.database, self.container = self.setup_clients()
             self.crawler_store_items = self.setup_crawler_data()
@@ -87,6 +102,7 @@ class Orchestrator:
         self.logging.info(f"COSMOS_URL: {self.COSMOS_URL}")
         self.logging.info(f"COSMOS_DATABASE_NAME: {self.DATABASE_NAME}")
         self.logging.info(f"COSMOS_CONTAINER_NAME: {self.CONTAINER_NAME}")
+        self.logging.info(f"USE_CURL_CFFI: {self.USE_CURL_CFFI}")
 
 
     def setup_clients(self):
@@ -189,10 +205,11 @@ class Orchestrator:
 
             result = self.crawl_url(item["url"], q, item["type"], depth=item["depth"])
             if result is not None:
-                content, contenttype = result
+                content, contenttype, title = result
 
                 item["content"] = content
                 item["contenttype"] = contenttype
+                item["title"] = title
                 nextq.put(item)
 
             q.task_done()
@@ -216,10 +233,14 @@ class Orchestrator:
                 parsed_url = urlparse(url)
                 
                 if parsed_url.path.lower().endswith(".pdf"):
-                    headers = {
-                            "User-Agent": self.AGENT_NAME
-                        }
-                    response = requests.get(url=url, headers=headers, timeout=30)
+                    if self.USE_CURL_CFFI:
+                        # Use curl_cffi with Chrome impersonation to bypass TLS fingerprinting
+                        response = curl_requests.get(url, impersonate="chrome120", timeout=30)
+                    else:
+                        headers = {
+                                "User-Agent": self.AGENT_NAME
+                            }
+                        response = requests.get(url=url, headers=headers, timeout=30)
                     
                     # Check if the request was successful
                     if response.status_code == 403:
@@ -244,9 +265,9 @@ class Orchestrator:
                     if not self.page_has_changed(url=url, md5_hash=md5_hash):
                         return None
                     
-                    return response.content, "pdf"
+                    return response.content, "pdf", None
                 else:
-                    with WebCrawler(base_url=url, exclude_urls=self.EXCLUDE_LIST, agent=self.AGENT_NAME, include_domains=self.INCLUDE_DOMAINS, include_urls=self.INCLUDE_URLS, include_urls_regex=self.INCLUDE_URLS_REGEX, ignore_anchor_link=self.IGNORE_ANCHOR_LINK, include_domains_regex=self.INCLUDE_DOMAINS_REGEX) as crawler:
+                    with WebCrawler(base_url=url, exclude_urls=self.EXCLUDE_LIST, agent=self.AGENT_NAME, include_domains=self.INCLUDE_DOMAINS, include_urls=self.INCLUDE_URLS, include_urls_regex=self.INCLUDE_URLS_REGEX, ignore_anchor_link=self.IGNORE_ANCHOR_LINK, include_domains_regex=self.INCLUDE_DOMAINS_REGEX, use_curl_cffi=self.USE_CURL_CFFI) as crawler:
                         crawler.visit_url(url)
                         
                         #self.logging.info(f"URL : {url}, HTML: {crawler.get_page_source()}")
@@ -263,7 +284,8 @@ class Orchestrator:
                             self.extract_links_to_queue(crawler=crawler, nextq=q, depth=depth)
 
                         content = crawler.parse_page()
-                        return content, "text"
+                        title = crawler.get_page_title()
+                        return content, "text", title
                         
             except Exception as e:
                 retry_count += 1
@@ -329,6 +351,9 @@ class Orchestrator:
                         chunk.id = f"{id}-{i}"
                         chunk.sourcepage = str(i)
                         chunk.sourcefile = str(item["url"])
+                        # Override title with actual page title if available
+                        if item.get("title"):
+                            chunk.title = item["title"]
 
                         if chunk.embedding is not None:
                             self.logging.info(f"Processed Chunk for url: {chunk.url} - Chunk id: {chunk.id} - Chunk embedding: {chunk.embedding[:5]}")

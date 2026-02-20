@@ -1148,8 +1148,12 @@ class SingletonFormRecognizerClient:
             key = os.getenv("FORM_RECOGNIZER_KEY")
             if url and key:
                 cls.instance = DocumentAnalysisClient(endpoint=url, credential=AzureKeyCredential(key))
+            elif url:
+                from azure.identity import DefaultAzureCredential
+                logging.info("SingletonFormRecognizerClient: No key found, using DefaultAzureCredential")
+                cls.instance = DocumentAnalysisClient(endpoint=url, credential=DefaultAzureCredential())
             else:
-                logging.info("SingletonFormRecognizerClient: Skipping since credentials not provided. Assuming NO form recognizer extensions(like .pdf) in directory")
+                logging.info("SingletonFormRecognizerClient: Skipping since endpoint not provided. Assuming NO form recognizer extensions(like .pdf) in directory")
                 cls.instance = object() # dummy object
         return cls.instance
 
@@ -1158,4 +1162,9 @@ class SingletonFormRecognizerClient:
 
     def __setstate__(self, state):
         url, key = state
-        self.instance = DocumentAnalysisClient(endpoint=url, credential=AzureKeyCredential(key))
+        key_credential = os.getenv("FORM_RECOGNIZER_KEY")
+        if key_credential:
+            self.instance = DocumentAnalysisClient(endpoint=url, credential=AzureKeyCredential(key))
+        else:
+            from azure.identity import DefaultAzureCredential
+            self.instance = DocumentAnalysisClient(endpoint=url, credential=DefaultAzureCredential())

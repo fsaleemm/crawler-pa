@@ -7,8 +7,17 @@ from selenium.common.exceptions import TimeoutException
 import requests, os, logging
 from urllib.parse import urlparse, urlunparse
 
+# Optional curl_cffi import for bypassing TLS fingerprinting
+try:
+    from curl_cffi import requests as curl_requests
+    CURL_CFFI_AVAILABLE = True
+except ImportError:
+    CURL_CFFI_AVAILABLE = False
+    curl_requests = None
+
 class WebCrawler:
-    def __init__(self, base_url, exclude_urls, driver_path=None, agent=None, include_domains=None, include_urls=None, include_urls_regex=None, include_domains_regex=None, ignore_anchor_link=False):
+    def __init__(self, base_url, exclude_urls, driver_path=None, agent=None, include_domains=None, include_urls=None, include_urls_regex=None, include_domains_regex=None, ignore_anchor_link=False, use_curl_cffi=False):
+        self.use_curl_cffi = use_curl_cffi and CURL_CFFI_AVAILABLE
         self.chrome_options = Options()
         # Run Chrome in headless mode
         self.chrome_options.add_argument("--headless")
@@ -289,17 +298,27 @@ class WebCrawler:
         return links
     
     def get_pdf(self, url):
-        
-        headers = {
+        """Download PDF content, optionally using curl_cffi to bypass TLS fingerprinting."""
+        if self.use_curl_cffi:
+            # Use curl_cffi with Chrome impersonation to bypass TLS fingerprinting
+            response = curl_requests.get(url, impersonate="chrome120", timeout=30)
+        else:
+            headers = {
                 "User-Agent": self.agent
             }
-        
-        response = requests.get(url=url, headers=headers)
+            response = requests.get(url=url, headers=headers, timeout=30)
         return response
 
     def parse_page(self):
         main_content = self.driver.find_element(By.TAG_NAME, "body")
         return main_content.text
+
+    def get_page_title(self):
+        """Get the page title from the browser."""
+        try:
+            return self.driver.title
+        except:
+            return None
 
     def close(self):
         self.driver.quit()
