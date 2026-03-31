@@ -624,16 +624,20 @@ def get_embedding(text, embedding_model_endpoint=None, embedding_model_key=None,
     endpoint = embedding_model_endpoint if embedding_model_endpoint else os.environ.get("EMBEDDING_MODEL_ENDPOINT")
     key = embedding_model_key if embedding_model_key else os.environ.get("EMBEDDING_MODEL_KEY")
     
-    if azure_credential is None and (endpoint is None or key is None):
-        logger.error("EMBEDDING_MODEL_ENDPOINT and EMBEDDING_MODEL_KEY are required for embedding")
-        raise Exception("EMBEDDING_MODEL_ENDPOINT and EMBEDDING_MODEL_KEY are required for embedding")
+    if endpoint is None:
+        logger.error("EMBEDDING_MODEL_ENDPOINT is required for embedding")
+        raise Exception("EMBEDDING_MODEL_ENDPOINT is required for embedding")
+
+    if azure_credential is None and key is None:
+        logger.error("Either EMBEDDING_MODEL_KEY or azure_credential is required for embedding")
+        raise Exception("Either EMBEDDING_MODEL_KEY or azure_credential is required for embedding")
 
     try:
         endpoint_parts = endpoint.split("/openai/deployments/")
         base_url = endpoint_parts[0]
         deployment_id = endpoint_parts[1].split("/embeddings")[0]
 
-        display_key = key[:3] + "..." + key[-3:]
+        display_key = (key[:3] + "..." + key[-3:]) if key else "RBAC"
 
         logger.info(f"Getting embedding for text with endpoint base url={base_url} : deployment={deployment_id} : endpoint={endpoint} : key={display_key}")
 

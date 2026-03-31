@@ -5,13 +5,14 @@ from azure.search.documents.indexes.models import (
     SimpleField,
     SearchFieldDataType,
     SemanticField,
-    SemanticSettings,
     SemanticConfiguration,
     SearchIndex,
-    PrioritizedFields,
     VectorSearch,
-    VectorSearchAlgorithmConfiguration,
-    HnswParameters
+    HnswParameters,
+    HnswAlgorithmConfiguration,
+    VectorSearchProfile,
+    SemanticSearch,
+    SemanticPrioritizedFields
 )
 
 import dataclasses
@@ -37,30 +38,31 @@ def create_search_index(index_name, index_client):
                 SearchableField(name="extracted_data", type="Edm.String"),
                 SearchField(name="embedding", type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
                             hidden=False, searchable=True, filterable=False, sortable=False, facetable=False,
-                            vector_search_dimensions=1536, vector_search_configuration="default"),
+                            vector_search_dimensions=1536, vector_search_profile_name="my-vector-profile"),
                 SimpleField(name="sourcepage", type="Edm.String", filterable=True, facetable=True),
                 SimpleField(name="sourcefile", type="Edm.String", filterable=True, facetable=True),
             ],
-            semantic_settings=SemanticSettings(
-                configurations=[
-                    SemanticConfiguration(
-                        name="default",
-                        prioritized_fields=PrioritizedFields(
-                            title_field=SemanticField(field_name="title"),
-                            prioritized_content_fields=[
-                                SemanticField(field_name="content")
-                            ],
-                        ),
-                    )
-                ]
-            ),
+            
+            semantic_search=SemanticSearch(
+                    configurations=[
+                        SemanticConfiguration(
+                            name="default",
+                            prioritized_fields=SemanticPrioritizedFields(
+                                title_field=SemanticField(field_name="title"),
+                                content_fields=[
+                                    SemanticField(field_name="content")
+                                ],
+                            ),
+                        )
+                    ]
+                )
+            ,
             vector_search=VectorSearch(
-                algorithm_configurations=[
-                    VectorSearchAlgorithmConfiguration(
-                        name="default",
-                        kind="hnsw",
-                        hnsw_parameters=HnswParameters(metric="cosine")
-                    )
+                algorithms=[
+                    HnswAlgorithmConfiguration(name="default", kind="hnsw")
+                ],
+                profiles=[
+                    VectorSearchProfile(name="my-vector-profile", algorithm_configuration_name="default")
                 ]
             )
         )

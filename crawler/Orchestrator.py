@@ -70,6 +70,9 @@ class Orchestrator:
             self.FORM_RECOGNIZER_ENDPOINT = os.getenv("FORM_RECOGNIZER_ENDPOINT") 
             form_recognizer_key = os.getenv("FORM_RECOGNIZER_KEY")
             self.FORM_RECOGNIZER_CREDS = AzureKeyCredential(form_recognizer_key) if form_recognizer_key else DefaultAzureCredential()
+            self.EMBEDDING_MODEL_ENDPOINT = os.getenv("EMBEDDING_MODEL_ENDPOINT")
+            embedding_model_key = os.getenv("EMBEDDING_MODEL_KEY")
+            self.EMBEDDING_CREDENTIAL = None if embedding_model_key else DefaultAzureCredential()
             self.COSMOS_URL = os.environ.get("COSMOS_URL")
             self.COSMOS_KEY = os.environ.get("COSMOS_DB_KEY", None)
             self.DATABASE_NAME = os.environ.get("COSMOS_DATABASE_NAME", "CrawlStore")
@@ -341,6 +344,8 @@ class Orchestrator:
                         form_recognizer_client=self.form_recognizer_client if item["contenttype"] == "pdf" else None,
                         use_layout=True if item["contenttype"] == "pdf" else False,
                         metadata = item.get("metadata", None),
+                        azure_credential=self.EMBEDDING_CREDENTIAL,
+                        embedding_endpoint=self.EMBEDDING_MODEL_ENDPOINT,
                         logger=self.logging
                     )
 
@@ -391,6 +396,8 @@ class Orchestrator:
                                     form_recognizer_client=None,
                                     use_layout=False,
                                     metadata = item.get("metadata", None),
+                                    azure_credential=self.EMBEDDING_CREDENTIAL,
+                                    embedding_endpoint=self.EMBEDDING_MODEL_ENDPOINT,
                                     logger=self.logging
                                 )
                                 
