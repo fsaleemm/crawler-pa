@@ -8,68 +8,159 @@ from azure.search.documents.indexes.models import (
     SemanticConfiguration,
     SearchIndex,
     VectorSearch,
-    HnswParameters,
     HnswAlgorithmConfiguration,
     VectorSearchProfile,
     SemanticSearch,
-    SemanticPrioritizedFields
+    SemanticPrioritizedFields,
+    AzureOpenAIVectorizer,
+    AzureOpenAIVectorizerParameters,
 )
 
 import dataclasses
+import os
 from tqdm import tqdm
 import logging
 
-def create_search_index(index_name, index_client):
+def create_search_index(index_name, index_client, vectorizer_resource_uri, vectorizer_deployment_id, vectorizer_model_name):
     logging.info(f"Ensuring search index {index_name} exists")
-    if index_name not in index_client.list_index_names():
-        index = SearchIndex(
-            name=index_name,
-            fields=[
-                SearchableField(name="id", type="Edm.String", key=True),
-                SearchableField(
-                    name="content", type="Edm.String", analyzer_name="en.lucene"
+
+    fields = [
+        SimpleField(
+            name="id",
+            type=SearchFieldDataType.String,
+            key=True,
+            hidden=False,
+            filterable=False,
+            sortable=False,
+            facetable=False,
+            searchable=True,
+            analyzer_name="keyword",
+        ),
+        SearchableField(
+            name="content",
+            type=SearchFieldDataType.String,
+            hidden=False,
+            filterable=False,
+            sortable=False,
+            facetable=False,
+            analyzer_name="en.microsoft",
+        ),
+        SearchableField(
+            name="title",
+            type=SearchFieldDataType.String,
+            hidden=False,
+            filterable=False,
+            sortable=False,
+            facetable=False,
+            analyzer_name="en.microsoft",
+        ),
+        SearchableField(
+            name="filepath",
+            type=SearchFieldDataType.String,
+            hidden=False,
+            filterable=False,
+            sortable=False,
+            facetable=False,
+            analyzer_name="standard.lucene",
+        ),
+        SearchableField(
+            name="url",
+            type=SearchFieldDataType.String,
+            hidden=False,
+            filterable=False,
+            sortable=False,
+            facetable=False,
+            analyzer_name="standard.lucene",
+        ),
+        SearchableField(
+            name="metadata",
+            type=SearchFieldDataType.String,
+            hidden=False,
+            filterable=False,
+            sortable=False,
+            facetable=False,
+            analyzer_name="standard.lucene",
+        ),
+        SearchableField(
+            name="extracted_data",
+            type=SearchFieldDataType.String,
+            hidden=False,
+            filterable=False,
+            sortable=False,
+            facetable=False,
+            analyzer_name="standard.lucene",
+        ),
+        SearchField(
+            name="embedding",
+            type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
+            searchable=True,
+            hidden=False,
+            vector_search_dimensions=1536,
+            vector_search_profile_name="my-vector-profile",
+        ),
+        SimpleField(
+            name="sourcepage",
+            type=SearchFieldDataType.String,
+            hidden=False,
+            filterable=True,
+            sortable=False,
+            facetable=True,
+        ),
+        SimpleField(
+            name="sourcefile",
+            type=SearchFieldDataType.String,
+            hidden=False,
+            filterable=True,
+            sortable=False,
+            facetable=True,
+        ),
+    ]
+
+    vector_search = VectorSearch(
+        algorithms=[
+            HnswAlgorithmConfiguration(name="default"),
+        ],
+        profiles=[
+            VectorSearchProfile(
+                name="my-vector-profile",
+                algorithm_configuration_name="default",
+                vectorizer_name="pgc-vectorizer",
+            ),
+        ],
+        vectorizers=[
+            AzureOpenAIVectorizer(
+                vectorizer_name="pgc-vectorizer",
+                parameters=AzureOpenAIVectorizerParameters(
+                    resource_url=vectorizer_resource_uri,
+                    deployment_name=vectorizer_deployment_id,
+                    model_name=vectorizer_model_name,
                 ),
-                SearchableField(
-                    name="title", type="Edm.String", analyzer_name="en.lucene"
+            ),
+        ],
+    )
+
+    semantic_search = SemanticSearch(
+        configurations=[
+            SemanticConfiguration(
+                name="default",
+                prioritized_fields=SemanticPrioritizedFields(
+                    title_field=SemanticField(field_name="title"),
+                    content_fields=[SemanticField(field_name="content")],
                 ),
-                SearchableField(name="filepath", type="Edm.String"),
-                SearchableField(name="url", type="Edm.String"),
-                SearchableField(name="metadata", type="Edm.String"),
-                SearchableField(name="extracted_data", type="Edm.String"),
-                SearchField(name="embedding", type=SearchFieldDataType.Collection(SearchFieldDataType.Single),
-                            hidden=False, searchable=True, filterable=False, sortable=False, facetable=False,
-                            vector_search_dimensions=1536, vector_search_profile_name="my-vector-profile"),
-                SimpleField(name="sourcepage", type="Edm.String", filterable=True, facetable=True),
-                SimpleField(name="sourcefile", type="Edm.String", filterable=True, facetable=True),
-            ],
-            
-            semantic_search=SemanticSearch(
-                    configurations=[
-                        SemanticConfiguration(
-                            name="default",
-                            prioritized_fields=SemanticPrioritizedFields(
-                                title_field=SemanticField(field_name="title"),
-                                content_fields=[
-                                    SemanticField(field_name="content")
-                                ],
-                            ),
-                        )
-                    ]
-                )
-            ,
-            vector_search=VectorSearch(
-                algorithms=[
-                    HnswAlgorithmConfiguration(name="default", kind="hnsw")
-                ],
-                profiles=[
-                    VectorSearchProfile(name="my-vector-profile", algorithm_configuration_name="default")
-                ]
-            )
-        )
-        logging.info(f"Creating {index_name} search index")
-        index_client.create_index(index)
-    else:
-        logging.info(f"Search index {index_name} already exists")
+            ),
+        ],
+    )
+
+    index = SearchIndex(
+        name=index_name,
+        fields=fields,
+        vector_search=vector_search,
+        semantic_search=semantic_search,
+    )
+
+    logging.info(f"Creating/updating {index_name} search index")
+    result = index_client.create_or_update_index(index)
+    logging.info(f"Index '{result.name}' created/updated successfully.")
 
 
 def upload_documents_to_index(docs, search_client, upload_batch_size=50):

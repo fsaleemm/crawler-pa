@@ -73,6 +73,20 @@ class Orchestrator:
             self.EMBEDDING_MODEL_ENDPOINT = os.getenv("EMBEDDING_MODEL_ENDPOINT")
             embedding_model_key = os.getenv("EMBEDDING_MODEL_KEY")
             self.EMBEDDING_CREDENTIAL = None if embedding_model_key else DefaultAzureCredential()
+            self.VECTORIZER_MODEL_NAME = os.getenv("VECTORIZER_MODEL_NAME", "text-embedding-ada-002")
+            # Parse resource URI and deployment from the embedding endpoint
+            if self.EMBEDDING_MODEL_ENDPOINT:
+                parsed = urlparse(self.EMBEDDING_MODEL_ENDPOINT)
+                self.VECTORIZER_RESOURCE_URI = f"{parsed.scheme}://{parsed.hostname}"
+                # Extract deployment name from path: /openai/deployments/<name>/embeddings
+                path_parts = [p for p in parsed.path.split('/') if p]
+                if 'deployments' in path_parts:
+                    self.VECTORIZER_DEPLOYMENT_ID = path_parts[path_parts.index('deployments') + 1]
+                else:
+                    self.VECTORIZER_DEPLOYMENT_ID = None
+            else:
+                self.VECTORIZER_RESOURCE_URI = None
+                self.VECTORIZER_DEPLOYMENT_ID = None
             self.COSMOS_URL = os.environ.get("COSMOS_URL")
             self.COSMOS_KEY = os.environ.get("COSMOS_DB_KEY", None)
             self.DATABASE_NAME = os.environ.get("COSMOS_DATABASE_NAME", "CrawlStore")
@@ -569,7 +583,13 @@ class Orchestrator:
     
         self.logging.info('Orchestrator is running...')
 
-        create_search_index(index_name=self.INDEX_NAME, index_client=self.index_client)
+        create_search_index(
+            index_name=self.INDEX_NAME,
+            index_client=self.index_client,
+            vectorizer_resource_uri=self.VECTORIZER_RESOURCE_URI,
+            vectorizer_deployment_id=self.VECTORIZER_DEPLOYMENT_ID,
+            vectorizer_model_name=self.VECTORIZER_MODEL_NAME,
+        )
 
         #base_crawler_queue = queue.Queue()
         url_crawler_queue = queue.Queue()

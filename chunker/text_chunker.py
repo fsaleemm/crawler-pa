@@ -224,15 +224,15 @@ class Document(object):
     """
 
     content: str
-    id: Optional[str] = None
-    title: Optional[str] = None
-    filepath: Optional[str] = None
-    url: Optional[str] = None
-    metadata: Optional[Dict] = None
-    extracted_data: Optional[Dict] = None
+    id: Optional[str] = ""
+    title: Optional[str] = ""
+    filepath: Optional[str] = ""
+    url: Optional[str] = ""
+    metadata: Optional[str] = ""
+    extracted_data: Optional[str] = ""
     embedding: Optional[List[float]] = None
-    sourcepage: Optional[str] = None
-    sourcefile: Optional[str] = None
+    sourcepage: Optional[str] = ""
+    sourcefile: Optional[str] = ""
 
 def cleanup_content(content: str) -> str:
     """Cleans up the given content using regexes
