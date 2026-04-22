@@ -13,7 +13,8 @@ azure-ai-formrecognizer==3.3.2
 azure-common==1.1.28
 azure-core==1.29.5
 azure-identity==1.15.0
-azure-search-documents==11.4.0b6
+# azure-search-documents==11.4.0b6
+azure-search-documents==11.6.0
 azure-storage-blob==12.19.0
 beautifulsoup4==4.12.2
 certifi==2023.7.22
@@ -21,6 +22,7 @@ cffi==1.16.0
 charset-normalizer==3.3.2
 colorama==0.4.6
 cryptography==41.0.5
+curl_cffi>=0.5.0
 dataclasses-json==0.6.1
 distro==1.8.0
 frozenlist==1.4.0
